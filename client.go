@@ -2,6 +2,7 @@ package yandexmapclient
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -14,6 +15,7 @@ import (
 const defaultHost = "https://yandex.ru/maps/api/masstransit/getStopInfo"
 const defaultLocale = "ru-RU"
 
+// Logger interface for logging some things
 type Logger interface {
 	Debug(msg string)
 	Debugf(format string, args ...interface{})
@@ -21,10 +23,11 @@ type Logger interface {
 
 type nopLogger struct{}
 
-func (n *nopLogger) Debug(_ string)                    {}
-func (n *nopLogger) Debugf(_ string, _ ...interface{}) {}
+func (nopLogger) Debug(_ string)                    {}
+func (nopLogger) Debugf(_ string, _ ...interface{}) {}
 
-type YandexClient struct {
+// Client interacts with yandex maps API
+type Client struct {
 	csrfToken string
 	host      string
 	locale    string
@@ -33,17 +36,17 @@ type YandexClient struct {
 }
 
 // New creates new yandexClient and gets csrfToken to be able to perform requests
-func New(opts ...ClientOption) (*YandexClient, error) {
+func New(opts ...ClientOption) (*Client, error) {
 	client := http.DefaultClient
 	client.Timeout = time.Second * 15
 	jar, _ := cookiejar.New(nil)
 	client.Jar = jar
 
-	c := &YandexClient{
+	c := &Client{
 		client: client,
 		host:   defaultHost,
 		locale: defaultLocale,
-		logger: &nopLogger{},
+		logger: nopLogger{},
 	}
 
 	for _, opt := range opts {
@@ -63,14 +66,19 @@ func New(opts ...ClientOption) (*YandexClient, error) {
 	return c, nil
 }
 
-func (c *YandexClient) UpdateToken() error {
+// UpdateToken gets new csrfToken if needed
+func (c *Client) UpdateToken() error {
 	c.logger.Debug("updating token")
 	path, _ := url.Parse(c.host)
 	q := path.Query()
 	q.Set("csrfToken", c.csrfToken)
 	path.RawQuery = q.Encode()
 
-	req, _ := http.NewRequest(http.MethodGet, c.host, nil)
+	c.logger.Debugf("request=%s", path.String())
+
+	req, _ := http.NewRequest(http.MethodGet, path.String(), nil)
+	req.Header.Set("accept-encoding", "gzip,deflate,br")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
@@ -102,31 +110,33 @@ func (c *YandexClient) UpdateToken() error {
 	}
 
 	c.logger.Debugf("updating csrf token to %s", response.CsrfToken)
-	c.csrfToken = response.CsrfToken
 
-	c.client.Jar.SetCookies(resp.Request.URL, resp.Cookies())
+	c.csrfToken = response.CsrfToken
+	c.client.Jar.SetCookies(path, resp.Cookies())
+
 	return nil
 }
 
-func (c *YandexClient) FetchStopInfo(stopID string) (StopInfo, error) {
+// FetchStopInfo gets stop info by specific stop id. If first request gets `invalid csrf token` response it applies it and retries
+func (c *Client) FetchStopInfo(stopID string) (StopInfo, error) {
 	c.logger.Debugf("fetching info for stop %s", stopID)
-	response, err := c.FetchStopInfo(stopID)
+	response, err := c.fetchStopInfo(stopID)
 	if err != nil {
 		return StopInfo{}, err
 	}
 
-	if response.CsrfToken != nil {
-		c.logger.Debugf("found new token, updating to %s", *response.CsrfToken)
-		c.csrfToken = *response.CsrfToken
+	if len(response.CsrfToken) != 0 {
+		c.logger.Debugf("found new token, updating to %s", response.CsrfToken)
+		c.csrfToken = response.CsrfToken
 		c.logger.Debug("fetching info again")
-		return c.FetchStopInfo(stopID)
+		return c.fetchStopInfo(stopID)
 	}
 
 	c.logger.Debug("success")
 	return response, nil
 }
 
-func (c *YandexClient) fetchStopInfo(stopID string) (StopInfo, error) {
+func (c *Client) fetchStopInfo(stopID string) (StopInfo, error) {
 	var path, _ = url.Parse(c.host)
 	q := path.Query()
 	q.Set("csrfToken", c.csrfToken)
@@ -134,17 +144,29 @@ func (c *YandexClient) fetchStopInfo(stopID string) (StopInfo, error) {
 	q.Set("id", stopID)
 	path.RawQuery = q.Encode()
 
-	req, _ := http.NewRequest(http.MethodGet, c.host, nil)
+	c.logger.Debugf("request=%s", path.String())
+
+	req, _ := http.NewRequest(http.MethodGet, path.String(), nil)
+	req.Header.Set("accept-encoding", "gzip,deflate,br")
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return StopInfo{}, err
 	}
-
-	defer func(cl io.Closer) { _ = cl.Close() }(resp.Body)
-	respData, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return StopInfo{}, err
+	defer func(cl io.Closer) {
+		errClose := cl.Close()
+		if errClose != nil {
+			c.logger.Debugf("closing resp.Body: %v", errClose)
+		}
+	}(resp.Body)
+	var reader io.ReadCloser
+	switch resp.Header.Get("content-encoding") {
+	case "gzip":
+		reader, _ = gzip.NewReader(resp.Body)
+	default:
+		reader = resp.Body
 	}
+	respData, err := ioutil.ReadAll(reader)
 
 	if resp.StatusCode != http.StatusOK {
 		return StopInfo{}, NewWrongStatusCodeError(resp.StatusCode)
@@ -152,6 +174,7 @@ func (c *YandexClient) fetchStopInfo(stopID string) (StopInfo, error) {
 
 	var response StopInfo
 	if errDec := json.NewDecoder(bytes.NewReader(respData)).Decode(&response); errDec != nil {
+		c.logger.Debugf("error fetching body: %s", respData)
 		return StopInfo{}, errDec
 	}
 
