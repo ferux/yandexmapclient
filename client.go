@@ -24,7 +24,7 @@ type nopLogger struct{}
 func (n *nopLogger) Debug(_ string)                    {}
 func (n *nopLogger) Debugf(_ string, _ ...interface{}) {}
 
-type yandexClient struct {
+type YandexClient struct {
 	csrfToken string
 	host      string
 	locale    string
@@ -33,13 +33,13 @@ type yandexClient struct {
 }
 
 // New creates new yandexClient and gets csrfToken to be able to perform requests
-func New(opts ...ClientOption) (*yandexClient, error) {
+func New(opts ...ClientOption) (*YandexClient, error) {
 	client := http.DefaultClient
 	client.Timeout = time.Second * 15
 	jar, _ := cookiejar.New(nil)
 	client.Jar = jar
 
-	c := &yandexClient{
+	c := &YandexClient{
 		client: client,
 		host:   defaultHost,
 		locale: defaultLocale,
@@ -63,7 +63,7 @@ func New(opts ...ClientOption) (*yandexClient, error) {
 	return c, nil
 }
 
-func (c *yandexClient) UpdateToken() error {
+func (c *YandexClient) UpdateToken() error {
 	c.logger.Debug("updating token")
 	path, _ := url.Parse(c.host)
 	q := path.Query()
@@ -108,7 +108,7 @@ func (c *yandexClient) UpdateToken() error {
 	return nil
 }
 
-func (c *yandexClient) FetchStopInfo(stopID string) (StopInfo, error) {
+func (c *YandexClient) FetchStopInfo(stopID string) (StopInfo, error) {
 	c.logger.Debugf("fetching info for stop %s", stopID)
 	response, err := c.FetchStopInfo(stopID)
 	if err != nil {
@@ -126,7 +126,7 @@ func (c *yandexClient) FetchStopInfo(stopID string) (StopInfo, error) {
 	return response, nil
 }
 
-func (c *yandexClient) fetchStopInfo(stopID string) (StopInfo, error) {
+func (c *YandexClient) fetchStopInfo(stopID string) (StopInfo, error) {
 	var path, _ = url.Parse(c.host)
 	q := path.Query()
 	q.Set("csrfToken", c.csrfToken)
