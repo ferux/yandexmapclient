@@ -45,10 +45,11 @@ func main() {
 			if err != nil {
 				continue
 			}
-			cur := time.Now().UTC()
-			t = t.AddDate(cur.Year(), int(cur.Month()-1), cur.Day())
-			dur := t.Sub(cur)
-			log.Printf("%5s will arrive in %s", tr.Name, dur.String())
+			// cur := time.Now().UTC()
+			// t = t.AddDate(cur.Year(), int(cur.Month()-1), cur.Day())
+			// dur := t.Sub(cur)
+			arrival := t.Hour()*60 + t.Minute()
+			log.Printf("%5s will arrive in %4d minutes", tr.Name, arrival)
 		}
 
 		_ = json.NewEncoder(os.Stdout).Encode(&info)

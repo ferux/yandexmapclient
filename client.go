@@ -147,7 +147,7 @@ func (c *Client) fetchStopInfo(stopID string) (StopInfo, error) {
 	c.logger.Debugf("request=%s", path.String())
 
 	req, _ := http.NewRequest(http.MethodGet, path.String(), nil)
-	req.Header.Set("accept-encoding", "gzip,deflate,br")
+	req.Header.Set("accept-encoding", "gzip")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -166,7 +166,11 @@ func (c *Client) fetchStopInfo(stopID string) (StopInfo, error) {
 	default:
 		reader = resp.Body
 	}
+
 	respData, err := ioutil.ReadAll(reader)
+	if err != nil {
+		return StopInfo{}, err
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return StopInfo{}, NewWrongStatusCodeError(resp.StatusCode)
