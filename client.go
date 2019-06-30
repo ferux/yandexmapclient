@@ -3,6 +3,7 @@ package yandexmapclient
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -118,7 +119,7 @@ func (c *Client) UpdateToken() error {
 }
 
 // FetchStopInfo gets stop info by specific stop id. If first request gets `invalid csrf token` response it applies it and retries
-func (c *Client) FetchStopInfo(stopID string, prognosis bool) (response StopInfo, err error) {
+func (c *Client) FetchStopInfo(ctx context.Context, stopID string, prognosis bool) (response StopInfo, err error) {
 	c.logger.Debugf("fetching info for stop %s", stopID)
 	var retry = true
 
@@ -127,7 +128,7 @@ func (c *Client) FetchStopInfo(stopID string, prognosis bool) (response StopInfo
 	// 2. If we didn't found time via prognosis we will try without
 	// 3. If we didn't found then, so whatever, drop the tries and return an error
 	for i := 0; i < 3 && retry; i++ {
-		response, retry, err = c.fetchStopInfo(stopID, prognosis)
+		response, retry, err = c.fetchStopInfo(ctx, stopID, prognosis)
 
 		// in case we couldn't found result with prognosis, we will try to find without it
 		if prognosis {
@@ -152,7 +153,7 @@ func (c *Client) FetchStopInfo(stopID string, prognosis bool) (response StopInfo
 	return response, nil
 }
 
-func (c *Client) fetchStopInfo(stopID string, prognosis bool) (stopInfo StopInfo, retry bool, err error) {
+func (c *Client) fetchStopInfo(ctx context.Context, stopID string, prognosis bool) (stopInfo StopInfo, retry bool, err error) {
 	var path, _ = url.Parse(c.host)
 	q := path.Query()
 	q.Set("csrfToken", c.csrfToken)
@@ -172,6 +173,7 @@ func (c *Client) fetchStopInfo(stopID string, prognosis bool) (stopInfo StopInfo
 	}
 
 	req.Header.Set("accept-encoding", "gzip")
+	req = req.WithContext(ctx)
 
 	resp, err := c.client.Do(req)
 	if err != nil {

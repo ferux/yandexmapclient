@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/ferux/yandexmapclient"
 )
+
+const defaultTimeout = time.Second * 15
 
 var handlers = map[string]func(){}
 
@@ -51,7 +54,15 @@ func main() {
 			continue
 		}
 
-		info, err := client.FetchStopInfo(command, prognosis)
+		var info yandexmapclient.StopInfo
+		var err error
+
+		func() {
+			ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+			defer cancel()
+			info, err = client.FetchStopInfo(ctx, command, prognosis)
+		}()
+
 		if err != nil {
 			fmt.Printf("error fetching info: %v\n", err)
 			continue
