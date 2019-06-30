@@ -198,6 +198,8 @@ func (c *Client) fetchStopInfo(stopID string, prognosis bool) (stopInfo StopInfo
 		return StopInfo{}, false, err
 	}
 
+	c.logger.Debugf("response: %s", respData)
+
 	if resp.StatusCode == http.StatusNotFound {
 		c.logger.Debug("status code is 404 NOT FOUND")
 		return StopInfo{}, true, NewWrongStatusCodeError(resp.StatusCode)
