@@ -118,47 +118,73 @@ func (c *Client) UpdateToken() error {
 }
 
 // FetchStopInfo gets stop info by specific stop id. If first request gets `invalid csrf token` response it applies it and retries
-func (c *Client) FetchStopInfo(stopID string) (StopInfo, error) {
+func (c *Client) FetchStopInfo(stopID string, prognosis bool) (response StopInfo, err error) {
 	c.logger.Debugf("fetching info for stop %s", stopID)
-	response, err := c.fetchStopInfo(stopID)
+	var retry = true
+
+	// 3 times is the maximum possible request due to the following:
+	// 1. If we got expired csrf token, we will apply new one ane retry
+	// 2. If we didn't found time via prognosis we will try without
+	// 3. If we didn't found then, so whatever, drop the tries and return an error
+	for i := 0; i < 3 && retry; i++ {
+		response, retry, err = c.fetchStopInfo(stopID, prognosis)
+
+		// in case we couldn't found result with prognosis, we will try to find without it
+		if prognosis {
+			prognosis = !prognosis
+		}
+
+		if retry {
+			continue
+		}
+
+		if err != nil {
+			return StopInfo{}, nil
+		}
+	}
+
 	if err != nil {
+		c.logger.Debugf("finished with error: %v", err)
 		return StopInfo{}, err
 	}
 
-	if len(response.CsrfToken) != 0 {
-		c.logger.Debugf("found new token, updating to %s", response.CsrfToken)
-		c.csrfToken = response.CsrfToken
-		c.logger.Debug("fetching info again")
-		return c.fetchStopInfo(stopID)
-	}
-
-	c.logger.Debug("success")
+	c.logger.Debugf("finished: %#v", response)
 	return response, nil
 }
 
-func (c *Client) fetchStopInfo(stopID string) (StopInfo, error) {
+func (c *Client) fetchStopInfo(stopID string, prognosis bool) (stopInfo StopInfo, retry bool, err error) {
 	var path, _ = url.Parse(c.host)
 	q := path.Query()
 	q.Set("csrfToken", c.csrfToken)
 	q.Set("locale", c.locale)
 	q.Set("id", stopID)
+	if prognosis {
+		q.Set("mode", "prognosis")
+	}
 	path.RawQuery = q.Encode()
 
 	c.logger.Debugf("request=%s", path.String())
 
-	req, _ := http.NewRequest(http.MethodGet, path.String(), nil)
+	req, err := http.NewRequest(http.MethodGet, path.String(), nil)
+	if err != nil {
+		c.logger.Debugf("error creating request: %v", err)
+		return StopInfo{}, false, err
+	}
+
 	req.Header.Set("accept-encoding", "gzip")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return StopInfo{}, err
+		return StopInfo{}, false, err
 	}
+
 	defer func(cl io.Closer) {
 		errClose := cl.Close()
 		if errClose != nil {
 			c.logger.Debugf("closing resp.Body: %v", errClose)
 		}
 	}(resp.Body)
+
 	var reader io.ReadCloser
 	switch resp.Header.Get("content-encoding") {
 	case "gzip":
@@ -169,18 +195,32 @@ func (c *Client) fetchStopInfo(stopID string) (StopInfo, error) {
 
 	respData, err := ioutil.ReadAll(reader)
 	if err != nil {
-		return StopInfo{}, err
+		return StopInfo{}, false, err
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		c.logger.Debug("status code is 404 NOT FOUND")
+		return StopInfo{}, true, NewWrongStatusCodeError(resp.StatusCode)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return StopInfo{}, NewWrongStatusCodeError(resp.StatusCode)
+		c.logger.Debugf("status code is %d", resp.StatusCode)
+		return StopInfo{}, false, NewWrongStatusCodeError(resp.StatusCode)
 	}
 
 	var response StopInfo
-	if errDec := json.NewDecoder(bytes.NewReader(respData)).Decode(&response); errDec != nil {
-		c.logger.Debugf("error fetching body: %s", respData)
-		return StopInfo{}, errDec
+	if jerr := json.Unmarshal(respData, &response); jerr != nil {
+		c.logger.Debugf("error fetching body: %s with error: %v", respData, jerr)
+		return StopInfo{}, false, jerr
 	}
 
-	return response, nil
+	if len(response.CsrfToken) != 0 {
+		c.logger.Debugf("found new token, updating to %s", response.CsrfToken)
+		c.csrfToken = response.CsrfToken
+		c.logger.Debug("fetching info again")
+		return StopInfo{}, true, nil
+	}
+
+	c.logger.Debugf("fetched: %#+v", response)
+	return response, false, nil
 }
