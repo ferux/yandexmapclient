@@ -14,12 +14,9 @@ type refreshTokenResponse struct {
 // StopInfo contains information about incoming transport for stop and csrfToken in case
 // server responded with refresh token demand
 type StopInfo struct {
-	CsrfToken string `json:"csrfToken,omitempty"`
-	Error     *struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-	Data *Data `json:"data,omitempty"`
+	CsrfToken string          `json:"csrfToken,omitempty"`
+	Error     *YandexMapError `json:"error,omitempty"`
+	Data      *Data           `json:"data,omitempty"`
 }
 
 // Data model

@@ -1,3 +1,4 @@
 # yandexmapclient
 
-A small client that fetches public transport stop info from yandex.maps service and extracts incoming public transports
+A HTTP client to communication with Yandex Map API and retrieve information about
+public transport stops.

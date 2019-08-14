@@ -15,6 +15,7 @@ import (
 
 const defaultHost = "https://yandex.ru/maps/api/masstransit/getStopInfo"
 const defaultLocale = "ru-RU"
+const defaultLang = "ru"
 
 // Logger interface for logging some things
 type Logger interface {
@@ -32,6 +33,7 @@ type Client struct {
 	csrfToken string
 	host      string
 	locale    string
+	lang      string
 	client    *http.Client
 	logger    Logger
 }
@@ -47,7 +49,8 @@ func New(opts ...ClientOption) (*Client, error) {
 		client: client,
 		host:   defaultHost,
 		locale: defaultLocale,
-		logger: nopLogger{},
+		lang:   defaultLang,
+		logger: &nopLogger{},
 	}
 
 	for _, opt := range opts {
@@ -158,6 +161,7 @@ func (c *Client) fetchStopInfo(ctx context.Context, stopID string, prognosis boo
 	q := path.Query()
 	q.Set("csrfToken", c.csrfToken)
 	q.Set("locale", c.locale)
+	q.Set("lang", c.lang)
 	q.Set("id", stopID)
 	if prognosis {
 		q.Set("mode", "prognosis")
@@ -223,6 +227,10 @@ func (c *Client) fetchStopInfo(ctx context.Context, stopID string, prognosis boo
 		c.csrfToken = response.CsrfToken
 		c.logger.Debug("fetching info again")
 		return StopInfo{}, true, nil
+	}
+
+	if response.Error != nil {
+		return StopInfo{}, false, response.Error
 	}
 
 	c.logger.Debugf("fetched: %#+v", response)

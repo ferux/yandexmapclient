@@ -1,6 +1,9 @@
 package yandexmapclient
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 type ErrorTypes int
 
@@ -59,4 +62,14 @@ func NewEmptyTokenError() YandexClientError {
 		Message: "empty token from yandex",
 		code:    ErrorEmptyToken,
 	}
+}
+
+// YandexMapError reports error from service
+type YandexMapError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *YandexMapError) Error() string {
+	return "code " + strconv.Itoa(e.Code) + " and message: " + e.Message
 }
