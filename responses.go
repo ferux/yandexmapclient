@@ -2,6 +2,8 @@ package yandexmapclient
 
 import (
 	"encoding/json"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -40,6 +42,7 @@ func (p *Properties) UnmarshalJSON(data []byte) (err error) {
 		return err
 	}
 
+	in.CurrentTime = strings.Replace(in.CurrentTime, "Moscow Standard Time", "MST", 1)
 	t, err := time.Parse(jsonTimeFormat, in.CurrentTime)
 	if err != nil {
 		return err
@@ -81,7 +84,7 @@ type Frequency struct {
 }
 
 type TimeInfoYandex struct {
-	Value int64 `json:"value"`
+	Value string `json:"value"`
 }
 
 type TimeInfo struct {
@@ -94,6 +97,11 @@ func (t *TimeInfo) UnmarshalJSON(data []byte) (err error) {
 		return err
 	}
 
-	t.Time = time.Unix(ti.Value, 0)
+	unix, err := strconv.ParseInt(ti.Value, 10, 64)
+	if err != nil {
+		return err
+	}
+
+	t.Time = time.Unix(unix, 0)
 	return nil
 }
