@@ -84,19 +84,20 @@ func main() {
 
 		for _, tr := range info.Data.Properties.StopMetaData.Transport {
 			var pickTime time.Time
-			if len(tr.BriefSchedule.Events) > 0 {
+			bs := tr.Threads[0].BriefSchedule
+			if len(bs.Events) > 0 {
 				fmt.Println("picking scheduled time")
-				pickTime = tr.BriefSchedule.Events[0].Scheduled.Time
+				pickTime = bs.Events[0].Scheduled.Time
 				if pickTime.IsZero() {
 					fmt.Println("picking estimated time")
-					pickTime = tr.BriefSchedule.Events[0].Estimated.Time
+					pickTime = bs.Events[0].Estimated.Time
 				}
 			} else {
-				if time.Now().After(tr.BriefSchedule.Frequency.End.Time) {
+				if time.Now().After(bs.Frequency.End.Time) {
 					fmt.Println("picking begin time")
-					pickTime = tr.BriefSchedule.Frequency.Begin.Time
+					pickTime = bs.Frequency.Begin.Time
 				} else {
-					pickTime = time.Now().Add(time.Second * time.Duration(tr.BriefSchedule.Frequency.Value))
+					pickTime = time.Now().Add(time.Second * time.Duration(bs.Frequency.Value))
 				}
 			}
 

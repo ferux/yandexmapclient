@@ -60,6 +60,7 @@ func New(opts ...ClientOption) (*Client, error) {
 	}
 
 	if len(c.csrfToken) != 0 {
+		c.logger.Debug("csrf_token found")
 		return c, nil
 	}
 
@@ -82,6 +83,8 @@ func (c *Client) UpdateToken() error {
 
 	req, _ := http.NewRequest(http.MethodGet, path.String(), nil)
 	req.Header.Set("accept-encoding", "gzip,deflate,br")
+	req.Header.Set("accept", "*/*")
+	req.Header.Set("cache-control", "no-cache")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -115,6 +118,10 @@ func (c *Client) UpdateToken() error {
 
 	c.logger.Debugf("updating csrf token to %s", response.CsrfToken)
 
+	for _, cookie := range resp.Cookies() {
+		c.logger.Debugf("raw cookie: %s", cookie.Raw)
+	}
+
 	c.csrfToken = response.CsrfToken
 	c.client.Jar.SetCookies(path, resp.Cookies())
 
@@ -124,6 +131,13 @@ func (c *Client) UpdateToken() error {
 // FetchStopInfo gets stop info by specific stop id. If first request gets `invalid csrf token` response it applies it and retries
 func (c *Client) FetchStopInfo(ctx context.Context, stopID string, prognosis bool) (response StopInfo, err error) {
 	c.logger.Debugf("fetching info for stop %s", stopID)
+	u, _ := url.Parse(c.host)
+	c.logger.Debug("cookies: " + c.host)
+
+	for _, cookie := range c.client.Jar.Cookies(u) {
+		c.logger.Debug(cookie.String())
+	}
+
 	var retry = true
 
 	// 3 times is the maximum possible request due to the following:

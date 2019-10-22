@@ -3,7 +3,6 @@ package yandexmapclient
 import (
 	"encoding/json"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -29,29 +28,30 @@ type Data struct {
 // Properties model
 type Properties struct {
 	StopMetaData StopMetaData `json:"StopMetaData"`
-	CurrentTime  time.Time    `json:"currentTime"`
+	CurrentTime  int64        `json:"currentTime"`
 }
 
-func (p *Properties) UnmarshalJSON(data []byte) (err error) {
-	var in struct {
-		StopMetaData StopMetaData `json:"StopMetaData"`
-		CurrentTime  string       `json:"currentTime"`
-	}
+// leave it commented in case yandex decides to use string timestamp again.
+// func (p *Properties) UnmarshalJSON(data []byte) (err error) {
+// 	var in struct {
+// 		StopMetaData StopMetaData `json:"StopMetaData"`
+// 		CurrentTime  string       `json:"currentTime"`
+// 	}
 
-	if err = json.Unmarshal(data, &in); err != nil {
-		return err
-	}
+// 	if err = json.Unmarshal(data, &in); err != nil {
+// 		return err
+// 	}
 
-	in.CurrentTime = strings.Replace(in.CurrentTime, "Moscow Standard Time", "MST", 1)
-	t, err := time.Parse(jsonTimeFormat, in.CurrentTime)
-	if err != nil {
-		return err
-	}
+// 	in.CurrentTime = strings.Replace(in.CurrentTime, "Moscow Standard Time", "MST", 1)
+// 	t, err := time.Parse(jsonTimeFormat, in.CurrentTime)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	p.StopMetaData = in.StopMetaData
-	p.CurrentTime = t
-	return nil
-}
+// 	p.StopMetaData = in.StopMetaData
+// 	p.CurrentTime = t.Unix()
+// 	return nil
+// }
 
 // StopMetaData model
 type StopMetaData struct {
@@ -60,9 +60,13 @@ type StopMetaData struct {
 
 // TransportInfo contains departure time and route name
 type TransportInfo struct {
-	Name          string `json:"name"`
-	Type          string `json:"type"`
-	BriefSchedule Brief  `json:"BriefSchedule"`
+	Name    string   `json:"name"`
+	Type    string   `json:"type"`
+	Threads []Thread `json:"threads"`
+}
+
+type Thread struct {
+	BriefSchedule Brief `json:"BriefSchedule"`
 }
 
 // Brief contains unit's schedule info. It may or may not have DepartureTime
