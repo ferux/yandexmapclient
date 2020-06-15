@@ -5,8 +5,8 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -14,8 +14,9 @@ import (
 )
 
 const defaultHost = "https://yandex.ru/maps/api/masstransit/getStopInfo"
-const defaultLocale = "ru-RU"
+const defaultLocale = "ru_RU"
 const defaultLang = "ru"
+const defaultPoolSize = 1 << 20 // 1 MiB
 
 // Logger interface for logging some things
 type Logger interface {
@@ -27,15 +28,18 @@ type nopLogger struct{}
 
 func (nopLogger) Debug(_ string)                    {}
 func (nopLogger) Debugf(_ string, _ ...interface{}) {}
+func (nopLogger) Module(_ string) ModuleLogger      { return nopLogger{} }
 
 // Client interacts with yandex maps API
 type Client struct {
-	csrfToken string
-	host      string
-	locale    string
-	lang      string
-	client    *http.Client
-	logger    Logger
+	csrfToken   string
+	host        string
+	locale      string
+	lang        string
+	poolMaxSize int
+	client      *http.Client
+	logger      ModuleLogger
+	pool        *bytesPool
 }
 
 // New creates new yandexClient and gets csrfToken to be able to perform requests
@@ -46,11 +50,12 @@ func New(opts ...ClientOption) (*Client, error) {
 	client.Jar = jar
 
 	c := &Client{
-		client: client,
-		host:   defaultHost,
-		locale: defaultLocale,
-		lang:   defaultLang,
-		logger: &nopLogger{},
+		client:      client,
+		host:        defaultHost,
+		locale:      defaultLocale,
+		lang:        defaultLang,
+		poolMaxSize: defaultPoolSize,
+		logger:      &nopLogger{},
 	}
 
 	for _, opt := range opts {
@@ -58,6 +63,8 @@ func New(opts ...ClientOption) (*Client, error) {
 			return nil, err
 		}
 	}
+
+	c.pool = newCachedPool(c.poolMaxSize, c.logger)
 
 	if len(c.csrfToken) != 0 {
 		c.logger.Debug("csrf_token found")
@@ -74,7 +81,11 @@ func New(opts ...ClientOption) (*Client, error) {
 // UpdateToken gets new csrfToken if needed
 func (c *Client) UpdateToken() error {
 	c.logger.Debug("updating token")
-	path, _ := url.Parse(c.host)
+	path, err := url.Parse(c.host)
+	if err != nil {
+		return fmt.Errorf("parsing url: %w", err)
+	}
+
 	q := path.Query()
 	q.Set("csrfToken", c.csrfToken)
 	path.RawQuery = q.Encode()
@@ -98,17 +109,32 @@ func (c *Client) UpdateToken() error {
 		}
 	}(resp.Body)
 
-	if resp.StatusCode != http.StatusOK {
-		return NewWrongStatusCodeError(resp.StatusCode)
-	}
-
-	respData, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
+	var n int64
 	var response = refreshTokenResponse{}
-	if err = json.NewDecoder(bytes.NewReader(respData)).Decode(&response); err != nil {
+	c.pool.Apply(func(buf *bytes.Buffer) {
+		n, err = io.Copy(buf, resp.Body)
+		if err != nil {
+			err = fmt.Errorf("copying data from body: %w", err)
+
+			return
+		}
+
+		if n == 0 {
+			return
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			c.logger.Debugf("error data: %s", buf.String())
+
+			err = NewWrongStatusCodeError(resp.StatusCode)
+		}
+
+		err = json.NewDecoder(buf).Decode(&response)
+		if err != nil {
+			err = fmt.Errorf("decoding data: %w", err)
+		}
+	})
+	if err != nil {
 		return err
 	}
 
@@ -157,7 +183,7 @@ func (c *Client) FetchStopInfo(ctx context.Context, stopID string, prognosis boo
 		}
 
 		if err != nil {
-			return StopInfo{}, nil
+			return StopInfo{}, err
 		}
 	}
 
@@ -171,7 +197,12 @@ func (c *Client) FetchStopInfo(ctx context.Context, stopID string, prognosis boo
 }
 
 func (c *Client) fetchStopInfo(ctx context.Context, stopID string, prognosis bool) (stopInfo StopInfo, retry bool, err error) {
-	var path, _ = url.Parse(c.host)
+	var path *url.URL
+	path, err = url.Parse(c.host)
+	if err != nil {
+		return StopInfo{}, false, fmt.Errorf("parsing host: %w", err)
+	}
+
 	q := path.Query()
 	q.Set("csrfToken", c.csrfToken)
 	q.Set("locale", c.locale)
@@ -213,27 +244,38 @@ func (c *Client) fetchStopInfo(ctx context.Context, stopID string, prognosis boo
 		reader = resp.Body
 	}
 
-	respData, err := ioutil.ReadAll(reader)
+	var n int64
+	var response StopInfo
+	c.pool.Apply(func(buf *bytes.Buffer) {
+		n, err = io.Copy(buf, reader)
+		if err != nil {
+			err = fmt.Errorf("copying data from body: %w", err)
+
+			return
+		}
+
+		if n == 0 {
+			return
+		}
+
+		c.logger.Debugf("response (%d): %s", buf.Len(), buf.String())
+
+		if resp.StatusCode != http.StatusOK {
+			c.logger.Debugf("status code is %d", resp.StatusCode)
+			err = NewWrongStatusCodeError(resp.StatusCode)
+
+			return
+		}
+
+		err = json.NewDecoder(buf).Decode(&response)
+		if err != nil {
+			err = fmt.Errorf("decoding response body: %w", err)
+
+			return
+		}
+	})
 	if err != nil {
 		return StopInfo{}, false, err
-	}
-
-	c.logger.Debugf("response: %s", respData)
-
-	if resp.StatusCode == http.StatusNotFound {
-		c.logger.Debug("status code is 404 NOT FOUND")
-		return StopInfo{}, true, NewWrongStatusCodeError(resp.StatusCode)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Debugf("status code is %d", resp.StatusCode)
-		return StopInfo{}, false, NewWrongStatusCodeError(resp.StatusCode)
-	}
-
-	var response StopInfo
-	if jerr := json.Unmarshal(respData, &response); jerr != nil {
-		c.logger.Debugf("error fetching body: %s with error: %v", respData, jerr)
-		return StopInfo{}, false, jerr
 	}
 
 	if len(response.CsrfToken) != 0 {

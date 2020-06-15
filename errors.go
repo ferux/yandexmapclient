@@ -52,7 +52,7 @@ func ExtractErrorType(err error) ErrorTypes {
 
 func NewWrongStatusCodeError(gotCode int) YandexClientError {
 	return YandexClientError{
-		Message: fmt.Sprintf("wrong status code, got %d", gotCode),
+		Message: fmt.Sprintf("exp status code 200, got %d", gotCode),
 		code:    ErrorWrongStatusCode,
 	}
 }

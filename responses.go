@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-const jsonTimeFormat = "Mon Jan 02 2006 15:04:05 GMT-0700 (MST)"
-
 type refreshTokenResponse struct {
 	CsrfToken string `json:"csrfToken"`
 }
@@ -30,28 +28,6 @@ type Properties struct {
 	StopMetaData StopMetaData `json:"StopMetaData"`
 	CurrentTime  int64        `json:"currentTime"`
 }
-
-// leave it commented in case yandex decides to use string timestamp again.
-// func (p *Properties) UnmarshalJSON(data []byte) (err error) {
-// 	var in struct {
-// 		StopMetaData StopMetaData `json:"StopMetaData"`
-// 		CurrentTime  string       `json:"currentTime"`
-// 	}
-
-// 	if err = json.Unmarshal(data, &in); err != nil {
-// 		return err
-// 	}
-
-// 	in.CurrentTime = strings.Replace(in.CurrentTime, "Moscow Standard Time", "MST", 1)
-// 	t, err := time.Parse(jsonTimeFormat, in.CurrentTime)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	p.StopMetaData = in.StopMetaData
-// 	p.CurrentTime = t.Unix()
-// 	return nil
-// }
 
 // StopMetaData model
 type StopMetaData struct {

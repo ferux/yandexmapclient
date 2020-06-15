@@ -13,3 +13,6 @@
 
 # IDE settings
 .vscode
+
+# Binary
+bin
